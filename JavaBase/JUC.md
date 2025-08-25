@@ -99,7 +99,7 @@ Synchronized和Lock区别
 
 4、Synchronized（线程A（获取锁，如果阻塞），线程B（等待，一直等待）),lock可以尝试获取锁，失败了之后就放弃；
 
-![image-20250812204933056](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250812204933056.png)
+![image-20250812204933056](D:\programing\myCode\MyStudyResource\images\image-20250812204933056.png)
 
 5、Synchronized一定是非公平锁，但是lock可以是给公平的，通过入参控制；
 
@@ -580,7 +580,7 @@ class MyCache {
 
 ```
 
-![image-20250813205719260](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250813205719260.png)
+![image-20250813205719260](D:\programing\myCode\MyStudyResource\images\image-20250813205719260.png)
 
 >小结：使用ReentrantReadWriteLock后可以精确精致读写，让读操作可以多线程不分顺序，而写操作严格同步，一次只能一个线程占用，实现读写互斥 写写互斥 读读共享！
 
@@ -733,11 +733,11 @@ SynchronousQueue 容量为1！
 
 >线程池工作流程示意图
 
-![image-20250815213526879](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250815213526879.png)
+![image-20250815213526879](D:\programing\myCode\MyStudyResource\images\image-20250815213526879.png)
 
 >4种拒绝策略
 
-![image-20250815214543022](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250815214543022.png)
+![image-20250815214543022](D:\programing\myCode\MyStudyResource\images\image-20250815214543022.png)
 
 >ThreadPoolExecuter.AbortPolicy();   抛出异常
 >
@@ -1216,7 +1216,7 @@ volatile可以禁止指令重排！
 
 2、保证某些变量的内存可见性
 
-![image-20250819213642072](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250819213642072.png)
+![image-20250819213642072](D:\programing\myCode\MyStudyResource\images\image-20250819213642072.png)
 
 请你谈谈指令重排最经典的应用！DCL单例模式
 
@@ -1339,7 +1339,7 @@ public class Main {
 }
 ```
 
-![image-20250820212217915](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250820212217915.png)
+![image-20250820212217915](D:\programing\myCode\MyStudyResource\images\image-20250820212217915.png)
 
 #### 20、探究锁（开阔思路）
 
@@ -1406,7 +1406,7 @@ public class Main {
 }
 ```
 
-![image-20250820214524037](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250820214524037.png)
+![image-20250820214524037](D:\programing\myCode\MyStudyResource\images\image-20250820214524037.png)
 
 #### 21、什么是死锁？
 

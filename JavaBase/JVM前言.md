@@ -46,7 +46,7 @@
 
 初始化：给类的静态变量赋值正确的值；
 
-![image-20250821214933805](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250821214933805.png)
+![image-20250821214933805](D:\programing\myCode\MyStudyResource\images\image-20250821214933805.png)
 
 >类加载器分类
 
@@ -159,7 +159,7 @@ public class Main {
 
 分支、循环、跳转、异常处理都需要依赖程序计数器来完成！
 
-![image-20250822222625230](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250822222625230.png)
+![image-20250822222625230](D:\programing\myCode\MyStudyResource\images\image-20250822222625230.png)
 
 # 方法区的今生前世
 
@@ -201,9 +201,9 @@ jdk1.8之后
 
 java栈的组成元素--栈帧
 
-![image-20250823194454793](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250823194454793.png)
+![image-20250823194454793](D:\programing\myCode\MyStudyResource\images\image-20250823194454793.png)
 
-![image-20250823194025363](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250823194025363.png)
+![image-20250823194025363](D:\programing\myCode\MyStudyResource\images\image-20250823194025363.png)
 
 谈谈你认识几种JVM？
 
@@ -279,7 +279,7 @@ Perm:不会产生GC
 
 # 堆内存调优（初识）
 
-![image-20250823202202598](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250823202202598.png)
+![image-20250823202202598](D:\programing\myCode\MyStudyResource\images\image-20250823202202598.png)
 
 ```
 /**
@@ -344,7 +344,7 @@ public class Main {
 
 ```
 
-![image-20250823214623183](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250823214623183.png)
+![image-20250823214623183](D:\programing\myCode\MyStudyResource\images\image-20250823214623183.png)
 
 
 
@@ -356,7 +356,7 @@ public class Main {
 
 >引用计数法（了解即可）
 
-![image-20250824212912658](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250824212912658.png)
+![image-20250824212912658](D:\programing\myCode\MyStudyResource\images\image-20250824212912658.png)
 
 特点：每个对象都有一个引用计数器，每引用一次计数器+1，为0则直接垃圾回收
 
@@ -369,7 +369,7 @@ JVM一般不采用这种方式！
 
 >可达性算法，GC Root(普遍使用)
 
-![image-20250824221501437](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250824221501437.png)
+![image-20250824221501437](D:\programing\myCode\MyStudyResource\images\image-20250824221501437.png)
 
 一切都是从GC Root这个对象开始遍历的，只有和GC Root这个对象关联就不是垃圾！
 
@@ -388,7 +388,7 @@ JVM一般不采用这种方式！
 
 年轻代中就是使用复制算法！因为年轻代对象存活率低，适合全部复制过去，而不是检索某一部分对象复制过去！
 
-![image-20250824213946416](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250824213946416.png)
+![image-20250824213946416](D:\programing\myCode\MyStudyResource\images\image-20250824213946416.png)
 
 1、一般普通GC之后，差不多Eden几乎都是空的！
 
@@ -400,7 +400,7 @@ JVM一般不采用这种方式！
 
 >标记清除算法
 
-![image-20250824214949163](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250824214949163.png)
+![image-20250824214949163](D:\programing\myCode\MyStudyResource\images\image-20250824214949163.png)
 
 优点：不需要额外的空间
 
@@ -408,7 +408,7 @@ JVM一般不采用这种方式！
 
 >标记压缩算法
 
-![image-20250824215415694](C:\Users\81157\AppData\Roaming\Typora\typora-user-images\image-20250824215415694.png)
+![image-20250824215415694](D:\programing\myCode\MyStudyResource\images\image-20250824215415694.png)
 
 减少了上面标记清除的缺点，没有内存碎片但是再次加了一次扫描导致耗时更加严重！
 
