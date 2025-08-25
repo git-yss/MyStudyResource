@@ -450,6 +450,156 @@ Eden区对象存活率极低！统计99%对象基本第一次使用后都会失�
 
 推荐使用：标记清除/压缩！
 
+# -XX、-XX参数你用过哪些？JVM有哪些参数可以来调优？
+
+jvm只有三种参数类型：标配参数、X参数，XX参数；
+
+>标配参数：在各个版本之间都很稳定，很少变化
+
+```
+java -version
+java -help
+....
+```
+
+
+
+>-X参数（了解即可）
+
+```
+-Xint   #解释执行
+-Xcomp  #第一次使用就编译成本地的代码
+-Xmixed #混合执行，一边编译一边解释
+```
+
+![image-20250825210318404](JVM/image-20250825210318404.png)
+
+
+
+>重点(-XX参数)
+
+-XX:+或者-某一个属性值，+代表开启某一个功能，-表示关闭某一个功能！
+
+```
+public class Main {
+    public static void main(String[] args) throws InterruptedException, AWTException {
+        System.out.println("hello word!");
+        Thread.sleep(MAX_VALUE);
+    }
+}
+```
+
+![image-20250825210939295](JVM/image-20250825210939295.png)
+
+
+
+>-XX参数 之key-value型;
+
+元空间大小：`-XX:MetaspaceSize=128M`
+
+![image-20250825211505326](JVM/image-20250825211505326.png)
+
+控制进入老年区存活年限（默认15次）
+
+用法：`-XX:MaxTenuringThreshold=15`
+
+![image-20250825212312506](JVM/image-20250825212312506.png)
+
+>查看所有默认值
+
+`jps -l`
+
+`jinfo -flags 22432`
+
+![image-20250825212710018](JVM/image-20250825212710018.png)
+
+
+
+>经典面试题：-Xmx,-Xms,怎么解释？
+
+1. `Xmx` 最大堆的大小，等价于`-XX:InitialHeapSize`
+2. `Xms` 初始堆的大小，等价于`-XX:MaxHeapSize`
+
+最常用的东西都有语法糖吗，方便使用记忆！
+
+
+
+>初始的默认值是多少？
+
+`java -XX:+PrintFlagsInitial`
+
+![image-20250825214357190](JVM/image-20250825214357190.png)
+
+`:=`表示被修改了；
+
+`java -XX:+PrintCommandLineFlags -version`  打印用户手动设置的-XX参数
+
+![image-20250825214959305](JVM/image-20250825214959305.png)
+
+>-Xss: 线程栈大小 一般512k-1024k
+>
+>-XX: SurvivorRatio 设置新生代中s0/s1空间比例    `unit  -XX: SurvivorRatio =4 `
+>
+>表示Eden:s0:s1= 4：1：1
+
+# 请你谈谈你对OOM的认识？
+
+>堆溢出（常见）
+
+>栈溢出（常见）
+
+>`java.lang.OutOfMemoryError:  GC overhead limit exceeded`  GC回收时间过长也会导致OOM！
+
+代码逻辑出错，CPU占有率100%，GC一直没有好的效果！导致报错！
+
+```
+/**
+ * 默认内存配置
+ -Xmx1m -Xms1m -XX:+PrintGCDetails -XX:+MaxDirectMemorySize=5m
+ */
+public class Main {
+    public static void main(String[] args) throws InterruptedException, AWTException {
+       int i =0;
+        ArrayList<String> list = new ArrayList<>();
+        try {
+            while (true) {
+                list.add(String.valueOf(i++).intern());
+            }
+        } catch (OutOfMemoryError e) {
+            System.out.println(i);
+            e.printStackTrace();
+        }
+
+    }
+}
+```
+
+>`java.lang.OutOfMemoryError: Direct buffer memory ` 基础缓冲区的错误导致OOM！(少见)
+>
+>超过 MaxDirectMemorySize 限制;Netty 等 NIO 框架使用不当;未正确释放 Direct Buffer；
+>
+>频繁创建大量 Direct Buffer：
+
+>`java.lang.OutOfMemoryError: unable to create native Thread`  服务器线程不够导致OOM！
+
+高并发，unable to create native Thread这个错误更多时候是和平台有关系！
+
+1. 应用创建的线程过多！
+2. 服务器不允许你创建这么多线程！ 
+
+>`java.lang.OutOfMemoryError: 元空间报错！
+
+元空间里内容：
+
+- 虚拟机的类信息、方法和字段的描述信息
+- 常量池
+- 静态变量
+- JIT 编译器编译后的方法代码（部分）
+- 。。。
+
+
+
+
 
 
 
