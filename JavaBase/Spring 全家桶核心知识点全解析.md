@@ -200,15 +200,14 @@ public class UserBean implements InitializingBean, DisposableBean {
 Spring Boot 启动的核心入口是 `SpringApplication.run()`，完整流程如下：
 
 1. **初始化 SpringApplication**：
-
     - 推断应用类型（Servlet/Reactive）；
-
+    
     - 加载初始化器（ApplicationContextInitializer）；
-
+    
     - 加载监听器（ApplicationListener）；
-
+    
     - 推断主类（包含 `main` 方法的类）。
-
+    
 2. **执行 run 方法核心逻辑**：
 
     - 启动计时、加载环境（Environment）；
@@ -318,4 +317,3 @@ public ConfigurableApplicationContext run(String... args) {
 2. **Spring Boot 核心**：启动流程以 `SpringApplication.run()` 为入口，核心是上下文刷新；自动装配通过 `@EnableAutoConfiguration` 加载 `spring.factories` 中的配置类，结合条件注解实现「零配置」；
 
 3. **核心优势**：Spring 全家桶通过「约定大于配置」简化开发，IOC/AOP 是底层基石，Spring Boot 是快速开发的载体，Spring Cloud 是微服务落地的解决方案。
-> （注：文档部分内容可能由 AI 生成）
