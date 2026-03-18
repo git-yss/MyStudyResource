@@ -432,6 +432,193 @@ synchronized 锁的核心是「对象锁」，锁的状态会记录在对象的 
 |    **性能**    | JDK 1.6 后优化（锁升级），低并发和 ReentrantLock 持平；高并发略逊 |          高并发下性能更优（底层 AQS 实现，更灵活）           |
 | **使用复杂度** |                简单（无需手动管理，代码简洁）                |                  复杂（需手动释放，易出错）                  |
 
+### 可重入锁原理与实现
+
+可重入锁（Reentrant Lock）是一种允许同一个线程多次获取同一把锁而不会导致死锁的锁机制，核心解决了 “线程重复加锁时的死锁问题”。我们先从**原理**入手，再通过**Java 代码实现**和**核心逻辑拆解**，让你彻底理解它的工作方式。
+
+------
+
+## 一、可重入锁的核心原理
+
+### 1. 核心问题：为什么普通锁不可重入？
+
+普通独占锁（如简单的 synchronized 未优化版本）的逻辑是：
+
+- 锁的持有者标记为「线程 ID」
+- 加锁时检查：若锁已被持有 → 阻塞当前线程
+- 问题：同一线程第二次加锁时，会被自己持有的锁阻塞 → 死锁
+
+### 2. 可重入锁的解决思路
+
+可重入锁在普通独占锁的基础上，增加了两个核心属性：
+
+|     属性      |                             作用                             |
+| :-----------: | :----------------------------------------------------------: |
+| 持有者线程 ID |  记录当前持有锁的线程（用于判断是否是 “当前线程” 请求加锁）  |
+|   重入次数    | 记录当前线程重复加锁的次数（加锁 +1，解锁 -1，次数为 0 时释放锁） |
+
+**核心逻辑**：
+
+1. 加锁（lock）：
+
+   - 若锁未被持有 → 标记持有者为当前线程，重入次数设为 1；
+   - 若锁已被持有，且持有者是当前线程 → 重入次数 +1（无需阻塞）；
+   - 若锁已被其他线程持有 → 阻塞当前线程。
+
+   
+
+2. 解锁（unlock）：
+
+   - 只有持有者线程能解锁，重入次数 -1；
+   - 若重入次数减到 0 → 清空持有者标记，释放锁；
+   - 若重入次数 >0 → 仅减少次数，锁仍被当前线程持有。
+
+   
+
+------
+
+## 二、可重入锁的代码实现（Java 版）
+
+我们基于 `Java` 的 `AbstractQueuedSynchronizer（AQS）` 实现一个极简的可重入锁（JDK 中的 `ReentrantLock` 核心逻辑与此一致）：
+
+```
+import java.util.concurrent.locks.AbstractQueuedSynchronizer;
+
+/**
+ * 自定义可重入锁实现
+ */
+public class MyReentrantLock {
+    // 核心：基于AQS实现同步逻辑（AQS是JDK中所有锁的底层框架）
+    private final Sync sync = new Sync();
+
+    // 加锁方法
+    public void lock() {
+        sync.acquire(1); // 传入1表示每次加锁，重入次数+1
+    }
+
+    // 解锁方法
+    public void unlock() {
+        sync.release(1); // 传入1表示每次解锁，重入次数-1
+    }
+
+    // 内部类：实现AQS的核心逻辑（AQS是模板方法模式）
+    private static class Sync extends AbstractQueuedSynchronizer {
+        /**
+         * 尝试获取锁（AQS的核心方法）
+         * @param arg 重入次数增量（这里固定为1）
+         * @return 是否获取成功
+         */
+        @Override
+        protected boolean tryAcquire(int arg) {
+            // 1. 获取当前线程
+            Thread current = Thread.currentThread();
+            // 2. 获取AQS的state（核心状态变量，存储重入次数）
+            int state = getState();
+
+            // 情况1：锁未被持有（state=0）
+            if (state == 0) {
+                // CAS尝试将state从0改为1（保证原子性）
+                if (compareAndSetState(0, arg)) {
+                    // 设置锁的持有者为当前线程
+                    setExclusiveOwnerThread(current);
+                    return true;
+                }
+            }
+            // 情况2：锁已被持有，且持有者是当前线程（可重入）
+            else if (current == getExclusiveOwnerThread()) {
+                // 重入次数+1（无需CAS，因为只有当前线程能执行到这里）
+                int newState = state + arg;
+                setState(newState);
+                return true;
+            }
+
+            // 情况3：锁被其他线程持有 → 获取失败
+            return false;
+        }
+
+        /**
+         * 尝试释放锁（AQS的核心方法）
+         * @param arg 重入次数减量（这里固定为1）
+         * @return 是否完全释放（state=0）
+         */
+        @Override
+        protected boolean tryRelease(int arg) {
+            // 1. 检查解锁线程是否是持有者（非持有者解锁抛异常）
+            Thread current = Thread.currentThread();
+            if (current != getExclusiveOwnerThread()) {
+                throw new IllegalMonitorStateException("非锁持有者尝试解锁");
+            }
+
+            // 2. 重入次数-1
+            int state = getState() - arg;
+            boolean free = false;
+            // 3. 若重入次数减到0 → 完全释放锁
+            if (state == 0) {
+                free = true;
+                // 清空持有者标记
+                setExclusiveOwnerThread(null);
+            }
+            // 4. 更新state（即使未完全释放，也要更新次数）
+            setState(state);
+            return free;
+        }
+
+        // 标记为独占锁（可重入锁是独占锁）
+        @Override
+        protected boolean isHeldExclusively() {
+            return getExclusiveOwnerThread() == Thread.currentThread();
+        }
+    }
+
+    // 测试代码
+    public static void main(String[] args) {
+        MyReentrantLock lock = new MyReentrantLock();
+
+        // 线程1：多次加锁+解锁（验证可重入）
+        Thread t1 = new Thread(() -> {
+            try {
+                lock.lock(); // 第一次加锁，state=1
+                System.out.println("线程1第一次获取锁");
+
+                lock.lock(); // 第二次加锁，state=2
+                System.out.println("线程1第二次获取锁");
+
+                // 业务逻辑...
+            } finally {
+                lock.unlock(); // 第一次解锁，state=1
+                System.out.println("线程1第一次释放锁");
+
+                lock.unlock(); // 第二次解锁，state=0 → 完全释放
+                System.out.println("线程1第二次释放锁");
+            }
+        });
+
+        t1.start();
+    }
+}
+```
+
+### 代码核心解释
+
+1. AQS 的 state 变量：
+
+   - `state` 是 AQS 的核心状态变量（`volatile int` 类型，保证可见性），在可重入锁中用于存储**重入次数**。
+   - 初始值为 0（锁未被持有），线程第一次加锁 → state=1，第二次加锁 → state=2，以此类推。
+
+   
+
+2. tryAcquire 方法：
+
+   - 核心是 “判断锁状态 + 处理重入”：先检查锁是否空闲，空闲则 CAS 抢占；若已被自己持有，则直接增加重入次数。
+   - CAS（Compare And Swap）保证多线程竞争时的原子性，避免 “多个线程同时抢占锁” 的问题。
+
+   
+
+3. tryRelease 方法：
+
+   - 必须由持有者线程解锁，否则抛异常（符合锁的语义）。
+   - 只有当重入次数减到 0 时，才真正释放锁（清空持有者），否则仅减少次数。
+
 #### 7、不安全的集合类
 
 只要是并发环境，你的集合类都不安全（List,Map,Set）
@@ -1510,7 +1697,13 @@ public class Main {
 4、持有并等待
 
 ```
-
+1. 互斥条件（Mutual Exclusion）
+一个资源同一时间只能被一个线程持有，其他线程必须等待。比如：独占锁、数据库行锁。
+2. 请求并保持（Hold and Wait）
+线程已经持有至少一个资源，又去请求别的资源，且不释放已持有的。
+3. 不可剥夺（No Preemption）
+线程持有的资源只能自己释放，操作系统 / 其他线程不能强行抢占。
+4. 循环等待（Circular Wait）
 /**
  * 形成死锁怎么办？
  * 日志
