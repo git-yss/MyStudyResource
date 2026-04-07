@@ -1,0 +1,169 @@
+# Elasticsearch（ES）高级Java岗 一问一答面试手册（含个人疑问补充）
+
+## 一、核心基础类（必问必答）
+
+### Q1：ES 的底层是什么？为什么它查询这么快，比 MySQL 快那么多？
+
+A：ES 底层基于 Lucene 实现，查询快主要有5个核心原因：① 采用倒排索引，建立“词条→文档ID”的映射，无需全表扫描，直接定位词条；② 分布式并行查询，数据分散在多个分片，多节点并行执行，协调节点汇总结果；③ 文件系统缓存+段文件设计，索引文件被缓存，segment 只读不可变，利于缓存和检索；④ 空间换时间，通过额外索引结构（doc_values、fielddata），牺牲存储换取聚合、排序、过滤性能；⑤ filter 过滤上下文自带缓存，不计算评分，重复查询极快。
+
+### Q2：text 和 keyword 到底区别是什么？实际开发怎么选？
+
+A：核心区别的是是否分词：① text 类型会被分词器拆分，适合做全文检索，但不支持精确匹配、排序和聚合；② keyword 类型不会分词，保留原始完整字符串，适合精确查询、排序、聚合、去重。
+实际选型：需要搜索、模糊匹配的字段用 text（如标题、内容）；需要精确查询、排序、统计、过滤的字段用 keyword（如ID、手机号、状态）；一个字段既要搜索又要聚合，用 multi-fields（一个text主字段+一个keyword子字段）。
+
+### Q3：一个字段既要搜索又要聚合是什么意思？
+
+A：指一个字段既要支持用户全文搜索，又要用于统计、分组、排序。比如电商商品名称，用户要搜“华为手机”（需text分词），前端要按商品名称去重统计、排序（需keyword完整字符串），此时用 multi-fields 给该字段同时设置text和keyword子类型，分别满足两种场景。
+
+### Q4：refresh_interval 是干什么的？
+
+A：refresh_interval 控制数据写入 ES 后，多久才能被搜索到，默认值是1s。
+原理：数据写入后先存到内存缓冲区，到达refresh_interval时间后，ES 会把内存中的数据刷成 segment 段文件，此时数据才能被查询到。
+高并发写入时调大它（如30s、60s），可减少段刷新和合并的开销，显著提升写入性能，但会牺牲数据实时性（数据延迟对应时间才能搜到），适合日志、批量导入等非实时场景。
+
+## 二、高级实战类（高频必考）
+
+### Q1：ES 深度分页用 from+size 有什么问题？生产怎么解决？
+
+A：问题：from+size 做深度分页会导致严重性能问题，比如 from=10000、size=10 时，每个分片都要返回前10010条数据给协调节点，协调节点合并排序后只取10条，页数越深，内存占用越大，极易OOM、集群卡顿。
+生产解决方案：① 用 search_after（推荐，实时分页），根据上一页最后一条数据的唯一值（如id、时间戳）滚动查询，无深度限制；② 用 scroll（适合批量导出、后台任务，不适合用户实时翻页）；③ 业务上限制翻页深度（如最多100页）。
+
+# 手把手教你：**search_after 代码实战**（Java + ES 高级分页）
+
+------
+
+# 一、先搞懂：search_after 是干嘛的？
+
+**解决深分页问题**
+
+普通分页 `from + size` 超过 10000 条会报错！
+
+`search_after` 是**企业级真实项目必用**的分页方式。
+
+原理：
+
+**记住上一页最后一条数据的排序值 → 从这个值之后查下一页**
+
+像翻书：记住页码 → 从这页后面开始翻
+
+------
+
+# 二、必须满足 2 个条件（缺一不可）
+
+1. 必须排序（sort）
+
+   
+
+   至少一个唯一字段（推荐：
+
+   ```
+   id
+   ```
+
+    \+ 排序字段）
+
+2. **不能跳页**（只能上一页、下一页）
+
+------
+
+# 三、Java 完整代码（直接用）
+
+## 1. 第一步：第一页查询（不带 search_after）
+
+```
+NativeSearchQuery query = new NativeSearchQueryBuilder()
+    // 关键词搜索（你之前写的 multiMatch）
+    .withQuery(QueryBuilders.multiMatchQuery(keyword, "name", "introduce", "brand")
+            .field("name", 4.0f)
+            .field("brand", 3.0f))
+    
+    // 筛选（你之前学的 terms）
+    .withFilter(QueryBuilders.termsQuery("categoryId", 101, 102))
+    
+    // 必须排序！！！（search_after 核心）
+    // 排序规则：先按排序字段，再按唯一ID（防止重复）
+    .withSort(SortBuilders.fieldSort("id").order(SortOrder.DESC))
+    
+    // 每页条数
+    .withPageable(PageRequest.of(0, 10))
+    
+    .build();
+
+// 执行查询
+SearchHits<Product> searchHits = elasticsearchRestTemplate.search(query, Product.class);
+```
+
+## 2. 第二步：获取上一页最后一条的 sort 值
+
+```
+// 获取最后一条数据
+List<SearchHit<Product>> hitList = searchHits.getSearchHits();
+SearchHit<Product> lastHit = hitList.get(hitList.size() - 1);
+
+// 获取排序值（searchAfter 要的就是它！）
+Object[] searchAfterValues = lastHit.getSortValues();
+```
+
+## 3. 第三步：下一页查询（带上 search_after）
+
+```
+NativeSearchQuery query = new NativeSearchQueryBuilder()
+    .withQuery(QueryBuilders.multiMatchQuery(keyword, "name", "introduce", "brand")
+            .field("name", 4.0f)
+            .field("brand", 3.0f))
+    .withFilter(QueryBuilders.termsQuery("categoryId", 101, 102))
+    
+    // 排序必须和上一页完全一样！
+    .withSort(SortBuilders.fieldSort("id").order(SortOrder.DESC))
+    
+    // 核心：search_after 传入上一页最后一条的 sort 值
+    .withSearchAfter(searchAfterValues)
+    
+    .withPageable(PageRequest.of(0, 10)) // 这里永远写 0，不影响
+    
+    .build();
+
+// 执行查询 → 得到下一页数据
+SearchHits<Product> nextPageHits = elasticsearchRestTemplate.search(query, Product.class);
+```
+
+### Q2：ES 写入数据量大的时候，怎么优化写入速度？
+
+A：核心优化方向有6点：① 使用 bulk 批量写入，一批500~1000条提交，减少网络IO和请求开销；② 写入期间临时把副本数设为0，写完再恢复，避免副本同步拖慢写入；③ 调大 refresh_interval，减少段合并压力；④ 自动生成文档ID，避免ES查询校验版本，提升写入速度；⑤ 合理规划分片，利用routing让数据均匀分布，避免热点；⑥ 关闭不必要的特性（如_all字段、norms打分），减少索引构建开销。
+
+### Q3：线上要修改 ES 字段类型，又不能停服务，怎么做？
+
+A：采用零停机重建索引方案，核心是 reindex 同步数据+alias 别名原子切换，具体步骤：① 新建索引（new_index），设置正确的新mapping（修改后字段类型）和settings；② 用 _reindex API 将旧索引（old_index）数据全量同步到新索引，后台执行不影响线上查询；③ 数据校验，确认新索引数据完整正确；④ 原子切换别名（业务代码只访问别名），将别名从old_index切换到new_index（瞬间完成，业务无感知）；⑤ 观察稳定后，删除旧索引。
+好处：不停服、可回滚、无需修改业务代码。
+
+### Q4：生产环境中，ES 集群的分片数应该怎么规划？分片过多或过少会有什么问题？
+
+A：分片规划经验：① 单个分片大小控制在20GB~40GB（推荐30GB左右）；② 分片数量≈数据总量÷单分片大小；③ 分片总数不超过数据节点数的3~5倍，避免管理开销过大。
+分片过多问题：master节点元数据管理压力大，查询时协调节点合并开销巨大，段文件过多、段合并频繁，CPU、磁盘IO暴增，集群不稳定；
+分片过少问题：并发能力不足，无法利用多节点并行查询，单个分片过大导致查询变慢，主分片无法修改，扩容困难。
+
+### Q5：ES 和 MySQL 怎么保证数据一致？你们项目用什么方案？
+
+A：项目中用 Canal 监听 MySQL binlog 实现准实时同步，保证最终一致，具体流程：① Canal 伪装成MySQL从库，获取binlog增量数据；② 解析出insert/update/delete事件；③ 通过MQ（Kafka/RocketMQ）削峰，将事件投递到消费服务；④ 消费服务将数据写入ES；⑤ 配合定时任务做全量校验+兜底补偿，避免数据不一致。
+优点：对业务代码无侵入，不用双写，准实时、延迟低，高并发下不会拖慢业务库。
+补充：不选双写的原因：双写与业务强耦合、无事务保证（MySQL成功ES失败会不一致）、高并发下性能差、难以重试和兜底。
+
+### Q6：ES 出现 OOM、节点频繁宕机，你怎么排查和解决？
+
+A：排查步骤：① 先看ES堆内存配置，堆内存建议不超过32GB，且不超过机器内存的1/2，配置过小易OOM，过大导致GC停顿、节点掉线；② 排查是否有深度分页、大聚合、*开头模糊查询，这类操作会瞬间占满内存，导致FullGC频繁；③ 查看分片是否过多，分片过多会占用大量内存，查询合并开销大；④ 查看写入量是否突增，大量bulk写入、refresh太频繁会导致段合并压力大，内存飙升；⑤ 开启慢日志，定位耗内存的慢查询。
+解决方向：限制深度分页（改用search_after），优化大查询和大聚合，合理控制分片数，调整堆内存配置，增加副本分担查询压力，加熔断、限流，必要时扩容节点。
+
+### Q7：你在实际项目里，ES 主要用来解决什么业务场景？
+
+A：我们公司内部的禅道项目管理、需求管理、缺陷管理系统，传统用MySQL模糊查询效率低、体验差，引入ES做全文检索，主要解决4个场景：① 需求标题、描述、备注的全文搜索，支持分词、关键词高亮、模糊匹配，比MySQL like查询快很多；② 按创建人、状态、优先级、模块等多条件筛选，用ES做组合过滤、聚合统计，效率极高；③ 大量历史数据下的快速查询，解决MySQL大数据量分页、模糊查询变慢的问题；④ 简单的数据统计，比如按人员统计需求数、按状态统计缺陷分布，整体就是用ES作为内部系统的全文检索引擎，提升查询速度和用户体验。
+
+## 三、补充高频考点（延伸）
+
+### Q1：ES 核心概念有哪些？
+
+A：核心概念：索引（类似MySQL数据库）、文档（类似MySQL行）、分片（主分片+副本，分布式存储的核心）、倒排索引（ES高效检索的核心）；节点角色：master节点（负责选主、管理元数据）、data节点（存储数据、执行查询）、ingest节点（数据预处理）、coordinating节点（协调节点，接收请求、分发任务、汇总结果）。
+
+### Q2：ES 怎么避免脑裂？
+
+A：配置 discovery.zen.minimum_master_nodes = (master节点数/2) + 1，确保集群中只有超过半数的master节点同意，才能选举出新的master，避免多个master节点出现（脑裂），保证集群稳定。
+> （注：文档部分内容可能由 AI 生成）

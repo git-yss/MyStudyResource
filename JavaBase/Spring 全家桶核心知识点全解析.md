@@ -40,19 +40,320 @@ public class UserServiceImpl implements UserService {
 
 #### （3）IOC 容器底层原理
 
-Spring IOC 容器的核心是 `BeanFactory`（顶级接口）和 `ApplicationContext`（子接口，功能更全），底层创建 Bean 流程：
+1. Spring IoC 本质就干一件事：
 
-1. 加载配置（XML/注解），解析出 Bean 定义（BeanDefinition）；
+   **你不用 new 对象了，交给 Spring 容器去创建、管理、装配、销毁。**
 
-2. 通过反射创建 Bean 实例；
+   整个流程分为 4 大阶段：
 
-3. 解析依赖关系，完成 DI 注入；
+   1. **启动容器（加载配置）**
+   2. **扫描 + 解析 Bean 定义（BeanDefinition）**
+   3. **实例化 Bean（createBeanInstance）**
+   4. **初始化 Bean（填充属性 + 初始化方法 + 后置处理）**
+   5. **Bean 就绪，供使用**
+   6. **容器关闭，销毁 Bean**
 
-4. 初始化 Bean（执行 `init-method`/`@PostConstruct`）；
+   下面我一步一步拆开讲，每一步干什么、有啥用。
 
-5. 将 Bean 存入容器（单例 Bean 缓存到 `singletonObjects` 集合）；
+   ------
 
-6. 容器销毁时执行销毁方法（`destroy-method`/`@PreDestroy`）。
+   # 0. 准备知识
+
+   - **Bean**：被 Spring 管理的对象
+   - **BeanDefinition**：Bean 的 “设计图纸”，包含类名、作用域、懒加载、依赖等
+   - **BeanFactory**：Spring 容器顶层接口，负责创建、管理 Bean
+   - **ApplicationContext**：功能更强的容器（开发基本都用它）
+
+   ------
+
+   # 第 1 步：启动 Spring 容器
+
+   **入口：启动 main 方法 / 项目启动加载 Spring**
+
+   你写的代码类似：
+
+   
+
+   ```
+   AnnotationConfigApplicationContext context = 
+       new AnnotationConfigApplicationContext(AppConfig.class);
+   ```
+
+   ## 这一步干了啥？
+
+   1. 初始化容器环境
+   2. 加载配置类（或 xml）
+   3. 准备好**BeanFactory**（底层真正干活的工厂）
+
+   ## 作用
+
+   告诉 Spring：
+
+   “我要启动容器了，你准备好开始干活，去扫描、创建对象。”
+
+   ------
+
+   # 第 2 步：扫描包，收集 Bean 定义（BeanDefinition）
+
+   Spring 开始根据你的配置：
+
+   - `@ComponentScan`
+   - `@Configuration`
+   - `@Bean`
+   - xml 中的 bean 标签
+
+   去**扫描所有标注了 @Component/@Service/@Controller/@Repository 的类**。
+
+   ## 这一步干了啥？
+
+   1. 遍历包路径下所有 class 文件
+
+   2. 判断类上是否有 Bean 注解
+
+   3. **把每个 Bean 封装成一个 BeanDefinition 对象**
+
+   4. 把所有 BeanDefinition 存到一个 Map 里
+
+      ```
+      beanDefinitionMap：key=beanName，value=BeanDefinition
+      ```
+
+      
+
+   ## BeanDefinition 里有什么？
+
+   - 全类名（class）
+   - 是否单例 / 多例
+   - 是否懒加载
+   - 依赖哪些 Bean
+   - 初始化方法、销毁方法
+
+   ## 作用
+
+   **这一步不创建对象，只收集 “图纸”。**
+
+   Spring 先把所有要管理的 Bean 信息记下来，后面统一创建。
+
+   ------
+
+   # 第 3 步：BeanFactoryPostProcessor 处理（扩展点）
+
+   在**真正创建 Bean 之前**，Spring 允许你修改 BeanDefinition。
+
+   比如：
+
+   - 动态修改 Bean 的类
+   - 动态修改作用域
+   - 加属性
+   - MyBatis 就是在这里把 Mapper 变成 Bean
+
+   ## 作用
+
+   给开发者一个**修改 Bean 定义**的机会。
+
+   这是 Spring 强大扩展性的关键一步。
+
+   ------
+
+   # 第 4 步：开始实例化 Bean（真正 new 对象）
+
+   Spring 遍历 beanDefinitionMap，**开始创建对象**。
+
+   ## 这一步干了啥？
+
+   1. 根据 BeanDefinition 找到类
+
+   2. 通过
+
+      反射调用构造方法
+
+      创建实例
+
+   3. 创建出一个**原始对象**（还没填充属性，非常简陋）
+
+   ## 注意
+
+   此时对象只是**空壳**：
+
+   - @Autowired 依赖还没注入
+   - 初始化方法还没执行
+   - 还不是完整可用 Bean
+
+   ## 作用
+
+   把对象在内存中创建出来，占个坑。
+
+   ------
+
+   # 第 5 步：填充属性（依赖注入 DI）
+
+   这就是 **DI（依赖注入）** 阶段。
+
+   ## 干了啥？
+
+   Spring 扫描这个 Bean 里面：
+
+   - @Autowired
+   - @Resource
+   - @Value
+
+   然后：
+
+   1. 去容器里找对应的依赖 Bean
+   2. 通过**反射 set 方法 / 字段注入**给当前 Bean
+
+   ```
+   userService.setOrderService(orderService);
+   ```
+
+   ## 作用
+
+   **把依赖的对象自动塞进来，不用你手动 set。**
+
+   这就是 IoC 控制反转的核心体现：
+
+   你不用自己找依赖，Spring 主动喂给你。
+
+   ------
+
+   # 第 6 步：执行 Aware 接口（感知容器）
+
+   如果 Bean 实现了这些接口，Spring 会回调：
+
+   - BeanNameAware
+   - BeanFactoryAware
+   - ApplicationContextAware
+
+   
+
+   ```
+   public class MyBean implements ApplicationContextAware {
+       @Override
+       public void setApplicationContext(ApplicationContext ctx) {
+           // 拿到容器
+       }
+   }
+   ```
+
+   ## 作用
+
+   让 Bean 能**感知到 Spring 容器本身**，获取容器信息。
+
+   ------
+
+   # 第 7 步：BeanPostProcessor 前置处理
+
+   ```
+   postProcessBeforeInitialization()
+   ```
+
+   ## 作用
+
+   在**初始化方法执行前**做一些增强。
+
+   比如：
+
+   - 处理 @PostConstruct
+   - AOP 早期代理
+   - 依赖检查
+
+   ------
+
+   # 第 8 步：执行初始化方法
+
+   分三种：
+
+   1. **@PostConstruct**（优先）
+   2. 实现 **InitializingBean** 的 afterPropertiesSet ()
+   3. xml / 注解中指定的 **init-method**
+
+   ## 作用
+
+   让你在**对象就绪前做自定义初始化**：
+
+   - 加载配置
+   - 建立连接
+   - 初始化数据
+
+   ------
+
+   # 第 9 步：BeanPostProcessor 后置处理
+
+   ```
+   postProcessAfterInitialization()
+   ```
+
+   ## 这一步超级重要！
+
+   **AOP 就是在这里生成代理对象！**
+
+   Spring 判断：
+
+   - 这个类有没有切点？
+   - 要不要创建代理？
+   - 用 JDK 动态代理还是 Cglib？
+
+   然后把原始对象**包装成代理对象**，放回容器。
+
+   ## 作用
+
+   - AOP 实现
+   - 动态代理
+   - 对 Bean 做最终包装
+
+   ------
+
+   # 第 10 步：Bean 放入单例池，就绪使用
+
+   创建好、初始化完、代理完的 Bean，放入：
+
+   ```
+   singletonObjects：一级缓存，完整成熟的单例 Bean
+   ```
+
+   之后你：
+
+   ```
+   context.getBean(XXService.class)
+   ```
+
+   就从这里拿。
+
+   ## 作用
+
+   Bean 正式就绪，随时可以使用。
+
+   ------
+
+   # 第 11 步：容器关闭，销毁 Bean
+
+   容器关闭时执行：
+
+   1. @PreDestroy
+   2. DisposableBean 接口
+   3. destroy-method
+
+   ## 作用
+
+   释放资源：
+
+   - 关闭连接
+   - 清理线程池
+   - 保存数据
+
+   
+
+   1. 启动容器
+   2. 扫描类 → 生成 BeanDefinition
+   3. BeanFactory 后置处理器修改定义
+   4. 反射实例化对象（原始对象）
+   5. DI 依赖注入（填充 @Autowired）
+   6. 执行 Aware 感知容器
+   7. 前置处理器
+   8. 执行初始化方法
+   9. 后置处理器（生成 AOP 代理）
+   10. 放入单例池，供使用
+   11. 关闭容器 → 销毁 Bean
 
 ### 2. AOP（面向切面编程）—— 横向扩展能力
 
