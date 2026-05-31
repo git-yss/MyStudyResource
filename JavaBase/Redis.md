@@ -413,7 +413,9 @@ Redis集群通过数据分区来实现数据的分布式存储，通过自动故
 ![集群创建](https://web-1259428203.cos.ap-chengdu.myqcloud.com/6460c5db0d2dde57771481f4.png)
 
 **设置节点**
-Redis集群一般由多个节点组成，节点数量至少为6个才能保证组成完整高可用的集群。每个节点需要开启配置cluster-enabled yes，让Redis运行在集群模式下。
+Redis集群一般由多个节点组成，节点数量至少为6个才能保证组成完整高可用的集群。每个节点需要开启配置cluster-enabled 
+
+yes，让Redis运行在集群模式下。
 ![节点和握手](https://web-1259428203.cos.ap-chengdu.myqcloud.com/6460c5e50d2dde577714924a.png)
 **节点握手**
 节点握手是指一批运行在集群模式下的节点通过Gossip协议彼此通信， 达到感知对方的过程。节点握手是集群彼此通信的第一步，由客户端发起命 令：cluster meet{ip}{port}。完成节点握手之后，一个个的Redis节点就组成了一个多节点的集群。
