@@ -318,5 +318,64 @@ MySQL也支持哈希索引（Memory引擎默认），但InnoDB优先用B+树：
 
 
 
+游标分页的意思是：**下一页不是用“第几页”定位，而是用“上一页最后一条数据的位置”定位。**
+
+比如第一页查出来最后一条 `id = 100`，那么下一页就查：
+
+```
+SELECT *
+FROM table
+WHERE id > 100
+ORDER BY id
+LIMIT 20;
+```
+
+这里的 `100` 就是游标，也就是 `lastId`。
+
+**两个 SQL 的区别**
+
+第一个：
+
+```
+SELECT *
+FROM table
+WHERE id > #{lastId}
+ORDER BY id
+LIMIT #{pageSize};
+```
+
+它表示：从 `lastId` 后面开始取 `pageSize` 条。
+
+如果有主键索引或普通索引，MySQL 可以直接定位到 `id > lastId` 的位置，然后往后读 20 条。即使数据有几千万条，它也不需要跳过前面一百万条。
+
+缺点是：**不适合直接跳到第 5000 页**，因为它依赖上一页最后一条数据的游标。
+
+第二个：
+
+```
+SELECT t.*
+FROM table t
+JOIN (
+  SELECT id
+  FROM table
+  ORDER BY id
+  LIMIT #{offset}, #{pageSize}
+) tmp ON t.id = tmp.id;
+```
+
+它仍然是传统分页，只是做了优化。
+
+比如：
+
+```
+LIMIT 1000000, 20
+```
+
+MySQL 还是要先在子查询里扫描到第 `1000000 + 20` 条，只不过子查询只查 `id`，如果 `id` 在索引里，可以少读很多字段。然后再拿这 20 个 `id` 回表查完整数据。
+
+所以它的本质是：**offset 分页 + 延迟回表优化**。
+
+但缺点是：**offset 越大还是越慢**，只是比直接 `SELECT * LIMIT 1000000, 20` 好一些。
+
 
 
