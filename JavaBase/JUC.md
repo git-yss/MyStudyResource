@@ -1021,7 +1021,38 @@ SynchronousQueue 容量为1！
 >
 >ThreadPoolExecuter.CallerRunsPolicy() ;哪里来的找对用的线程执行！
 >
->ThreadPoolExecuter.DiscardOldestPolicy() ;尝试获取任务，不一定执行
+>特点：
+>
+>- 一般不会直接丢任务
+>- 占用调用方线程，降低任务提交速度
+>- 能形成一定的反压效果
+>- 任务执行时间过长时，会拖慢调用方
+>
+>适用场景：
+>
+>- 任务不能丢
+>- 允许调用方变慢
+>- 希望通过反压限制任务产生速度
+>- 日志处理、批量计算、异步保存等非低延迟场景
+>
+>ThreadPoolExecuter.DiscardOldestPolicy() ;丢弃队列中等待时间最长的任务，再尝试提交当前任务。
+>
+>注意，它丢弃的是**阻塞队列头部最旧的等待任务**，不是正在执行的任务。
+>
+>特点：
+>
+>- 优先处理较新的任务
+>- 老任务会被静默丢弃
+>- 重新提交时仍可能再次触发拒绝
+>- 使用优先级队列时，丢弃的未必是时间最旧任务
+>
+>适用场景：
+>
+>- 新数据比旧数据更重要
+>- 旧任务过期后没有执行价值
+>- 状态刷新、实时行情、页面数据更新、传感器快照等场景
+>
+>例如，系统只关心设备最新状态，积压的旧状态已经没有处理价值。
 >
 >ThreadPoolExecuter.DiscardPolicy() ;不报错，直接丢弃任务
 >
@@ -1567,6 +1598,119 @@ public class Hungry {
         System.out.println(lazyMan1.hashCode() );
     }
 ```
+
+静态内部类这个点，核心就一句：**JVM 对“类初始化”加了天然的同步保护，而静态内部类又能把初始化时机推迟到第一次使用。**
+
+先看代码：
+
+```
+public class Singleton {
+    private Singleton() {}
+
+    private static class Holder {
+        private static final Singleton INSTANCE = new Singleton();
+    }
+
+    public static Singleton getInstance() {
+        return Holder.INSTANCE;
+    }
+}
+```
+
+**为什么外部类加载时，`Holder` 不会立刻加载？**
+
+因为 `Holder` 虽然写在 `Singleton` 里面，但它本质上仍然是一个独立的类，编译后大概是两个 `.class` 文件：
+
+```
+Singleton.class
+Singleton$Holder.class
+```
+
+JVM 加载 `Singleton` 时，只需要知道它有一个内部类信息，不需要马上初始化 `Singleton$Holder`。
+类只有在被“主动使用”时才会初始化，比如：
+
+- 访问这个类的静态字段
+- 调用这个类的静态方法
+- 创建这个类的实例
+- 反射使用这个类
+- 初始化子类时需要先初始化父类
+
+所以只是加载外部类 `Singleton`，还没有主动使用 `Holder`，`Holder` 就不会初始化。
+
+**为什么第一次调用 `getInstance()` 才触发 `Holder` 加载？**
+
+因为这里第一次真正访问了：
+
+```
+return Holder.INSTANCE;
+```
+
+`INSTANCE` 是 `Holder` 的静态字段。访问一个类的静态字段，属于主动使用这个类，所以 JVM 会触发 `Holder` 的初始化。
+
+初始化 `Holder` 时，会执行：
+
+```
+private static final Singleton INSTANCE = new Singleton();
+```
+
+于是单例对象才被创建。
+
+这就是它的“懒加载”。
+
+**延迟加载后为什么线程安全？**
+
+重点在 JVM 的类初始化规则。
+
+当多个线程同时第一次调用：
+
+```
+Singleton.getInstance()
+```
+
+它们都会访问：
+
+```
+Holder.INSTANCE
+```
+
+此时 `Holder` 还没初始化。JVM 会保证同一个类的初始化过程同一时刻只能由一个线程执行。
+
+大概过程是：
+
+1. 线程 A 发现 `Holder` 没初始化，拿到类初始化锁
+2. 线程 A 执行 `Holder` 的 `<clinit>()` 方法
+3. `<clinit>()` 里初始化 `INSTANCE = new Singleton()`
+4. 线程 B、线程 C 如果也来访问 `Holder.INSTANCE`，会等待初始化完成
+5. 初始化完成后，其他线程直接拿到已经创建好的 `INSTANCE`
+
+所以 `new Singleton()` 只会执行一次。
+
+可以把它理解成 JVM 替你做了类似这样的保护：
+
+```
+synchronized (Holder.class) {
+    if (Holder 没有初始化) {
+        初始化 Holder;
+    }
+}
+```
+
+当然 JVM 底层不是这么简单写的，但语义上可以这样理解。
+
+**为什么不会像 DCL 那样拿到半初始化对象？**
+
+因为类初始化有 happens-before 保证。
+
+简单说：
+
+> 一个类的初始化完成，先行发生于任何线程后续对这个类的使用。
+
+也就是说，`Holder` 初始化完成后，其他线程再访问 `Holder.INSTANCE`，一定能看到初始化完成的 `Singleton` 对象，不会拿到半初始化对象。
+
+所以静态内部类安全靠的是两点：
+
+1. `Holder` 不主动使用就不初始化，所以实现懒加载
+2. JVM 保证类初始化线程安全，并保证初始化结果对其他线程可见
 
 #### 18、CAS
 
