@@ -618,6 +618,17 @@ public class MyReentrantLock {
 
    - 必须由持有者线程解锁，否则抛异常（符合锁的语义）。
    - 只有当重入次数减到 0 时，才真正释放锁（清空持有者），否则仅减少次数。
+   
+   AQS = 一个 `volatile int state` + 一个 FIFO 等待队列 + 一套 CAS 获取/释放同步状态的模板。
+   
+   核心就是：
+   
+   ```
+   state 表示同步状态
+   队列保存抢不到资源的线程
+   CAS 保证并发修改 state 的原子性
+   LockSupport.park/unpark 负责挂起和唤醒线程
+   ```
 
 #### 7、不安全的集合类
 
