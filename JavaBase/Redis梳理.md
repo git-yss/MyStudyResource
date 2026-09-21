@@ -259,6 +259,171 @@ hashtable 支持按 member 快速查 score
 
 注意：ZSet 的 score 是 double，涉及金额、精确排序、复合排序时不要直接用小数。常见做法是把分数放大成整数，或者把时间戳、权重编码成 long 型分数。
 
+Redis 的 `ZSET` 是“有序集合”（Sorted Set），核心特点是：
+
+> 每个成员 `member` 都有一个 `score`，Redis 会按照 `score` 自动排序。
+
+```
+ZADD ranking 100 Alice
+ZADD ranking 80 Bob
+ZADD ranking 95 Carol
+```
+
+结果逻辑上是：
+
+```
+Bob   80
+Carol 95
+Alice 100
+```
+
+## 1. ZSET 和 SET 的区别
+
+`SET` 只有成员：
+
+```
+Alice
+Bob
+Carol
+```
+
+`ZSET` 还有分数：
+
+```
+Alice -> 100
+Bob   -> 80
+Carol -> 95
+```
+
+而且同一个 `member` 在一个 ZSET 中只能有一个 `score`：
+
+```
+ZADD ranking 100 Alice
+ZADD ranking 120 Alice
+```
+
+第二次不会新增 Alice，而是把 Alice 的分数更新为 `120`。
+
+## 2. Redis 的 ZSET 不是只用跳表
+
+Redis 的 ZSET 通常同时使用两种数据结构：
+
+```
+ZSET
+├── dict
+└── skiplist
+```
+
+### dict：根据 member 快速找 score
+
+```
+Alice -> 100
+Bob   -> 80
+Carol -> 95
+```
+
+作用是：
+
+```
+ZSCORE ranking Alice
+```
+
+可以快速找到 Alice 的分数。
+
+### skiplist：按照 score 排序
+
+跳表保存类似：
+
+```
+Bob(80) -> Carol(95) -> Alice(100)
+```
+
+作用是支持：
+
+```
+ZRANGE ranking 0 -1
+ZRANGE ranking 0 9
+ZRANGEBYSCORE ranking 90 110
+```
+
+也就是按照排名或分数范围快速查询。
+
+所以可以简单记成：
+
+```
+dict    ：member -> score，负责快速定位
+skiplist：score + member -> 排序，负责范围查询和排名
+```
+
+## 3. 什么是跳表
+
+普通链表查找：
+
+```
+A -> B -> C -> D -> E -> F -> G
+```
+
+如果查找 `G`，可能要从头走 7 次，时间复杂度是 `O(N)`。
+
+跳表在链表上增加多层“快速通道”：
+
+```
+Level 2: A ------------> D ------------> G
+Level 1: A ----> C ----> D ----> F ----> G
+Level 0: A -> B -> C -> D -> E -> F -> G
+```
+
+查找时先从高层跳跃，接近目标后再下降到低层。
+
+平均复杂度：
+
+```
+查找：O(log N)
+插入：O(log N)
+删除：O(log N)
+```
+
+最底层仍然是完整有序链表，高层是索引。
+
+## 4. 为什么 Redis 使用跳表
+
+跳表和红黑树、AVL 树都可以实现有序结构。Redis 选择跳表，主要因为：
+
+- 实现相对简单
+- 范围查询方便
+- 底层是有序链表，顺序遍历自然
+- 插入、删除平均为 `O(log N)`
+- 可以方便地从某个节点继续向后遍历
+
+例如：
+
+```
+ZRANGEBYSCORE ranking 90 110
+```
+
+跳表可以先定位到第一个分数不小于 `90` 的节点，然后顺着底层链表往后扫描到 `110`。
+
+## 5. 为什么还需要 dict
+
+只使用跳表也能查找，但查询某个 member 时，需要按照排序结构查找，效率不够理想。
+
+例如：
+
+```
+ZSCORE ranking Alice
+```
+
+Redis 需要快速知道 Alice 对应的 score。通过字典可以做到平均 `O(1)`。
+
+因此 Redis 同时维护：
+
+```
+dict：保证按 member 查得快
+skiplist：保证按 score 排得好、范围查得快
+```
+
+代价是多占一份内存，并且更新时要同时维护两套结构。
+
 ### 3.6 Bitmap【了解即可】
 
 Bitmap 本质是 String 的位操作。

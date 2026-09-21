@@ -1852,7 +1852,44 @@ public class Main {
 4、持有并等待
 
 ```
-1. 互斥条件（Mutual Exclusion）
+**TTL = TransmittableThreadLocal（可传递的 ThreadLocal）**，Seata 用它存放全局事务 XID，**保证异步线程、RPC 跨服务调用时，XID 不会串到别的请求里，不会出现 A 请求的事务跑到 B 请求的数据上**。
+
+> 
+> 普通 `ThreadLocal` 问题：主线程拿到 XID，提交给线程池异步任务，**子线程拿不到主线程 ThreadLocal 的值**；
+> `InheritableThreadLocal` 问题：线程池复用线程时，**旧线程残留旧值，发生串 XID（串事务、串数据）**。
+> 
+> 
+> ✅ **TransmittableThreadLocal（TTL）就是专门解决线程池复用场景上下文串数据**。
+
+## 一、核心原理：三步隔离，杜绝串数据
+
+### 1. 捕获（capture）
+
+主线程执行 `@GlobalTransactional`，Seata 把 **XID** 存入 `TransmittableThreadLocal`。
+当要提交任务到线程池前，**capture 捕获当前上下文快照（XID）**。
+
+### 2. 传递（replay）
+
+线程池里复用的工作线程，执行任务**之前**，把刚才捕获到的 XID 设置到这个工作线程的 TTL 里。
+
+> 
+> 👉 这个时候工作线程就带上本次请求的 XID。
+
+### 3. 还原（restore）
+
+**任务执行完之后，强制把工作线程的上下文恢复成执行任务之前的旧值**。
+
+> 
+> 这一步是**防止串数据最关键**！
+> 线程池线程是复用的，执行完 A 任务，如果不清掉 XID，下一个 B 任务跑在同一个线程上，就会读到 A 的 XID，事务串了。TTL 在任务结束自动 restore 还原。
+
+> 
+> 一句话记忆：**提交前快照、执行前注入、执行后强制恢复现场**
+
+## 二、为什么 InheritableThreadLocal 会串，TTL 不会？
+
+1. **InheritableThreadLocal**：只在线程新建的时候复制一次父线程变量；**线程复用的时候不会重新复制，旧残留还在，直接串**。
+2. **TTL**：不是靠线程创建时继承；**每次提交任务都手动快照，任务结束强制回滚现场**，复用线程不会残留上一次的 XID。1. 互斥条件（Mutual Exclusion）
 一个资源同一时间只能被一个线程持有，其他线程必须等待。比如：独占锁、数据库行锁。
 2. 请求并保持（Hold and Wait）
 线程已经持有至少一个资源，又去请求别的资源，且不释放已持有的。
