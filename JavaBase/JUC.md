@@ -1425,6 +1425,74 @@ public class Main {
 >场景：多线程共享资源互斥！并发线程的控制（限流）
 >```
 
+# CyclicBarrier 和 CountDownLatch 的区别有哪些？
+
+关于Java中的栅栏(CyclicBarrier+)，我们可以从它跟闭锁(CountDownLatch)的对比开始讲
+起，因为这两个很容易混。比如说，你想做一个api接口的并发测试，用闭锁和栅栏都是可以的,
+也都有等的问题。
+那「等」这方面，两者有什么区别呢?为了简单起见，我们先用一个能覆盖80%场景的一句话，来
+概括两者的区别,虽然不严谨，但是能很好的协助理解。
+闭锁就是主线程在等，而栅栏是，子线程在等。
+像闭锁用的比较多的场景，就是用子线程分别去调用第三方接口，等子线程都拿到数据后，等待中
+的主线程，才开始被唤醒起来，拿到汇总后的数据，才真正的返回。
+这种就是用CountDownLatch让主线程等，子线程干活的场景，最后再汇总。
+而栅栏CyclicBarrier则不同，它是子线程相互等待。每个子线程可以先各自完成自己的前置任务,
+但一旦走到栅栏那个点(调用await()的)，就必须停下来等其他人。人没到齐，谁也不能越过栅栏
+继续往下走，只能老老实实地等。
+但是如果仅仅用这个角度来理解，还是有点晕的。因为还有一个问题没有搞清楚。那就是
+CountDownLatch中，线程调用完countdown,计数器减一后，它会被怎么处理?这个问题一定要
+理解好，可以简单分如下两种情况:
+●如果调用countdown的线程，是来自「线程池」的，那么执行完毕后，回归到线程里去，等待
+下次被调度;
+●如果是普通的通过new Thread()，那么这个线程最终是会被销毁的。
+也即是线程执行完countdown后，就完成使命了，是自由身了。而栅栏(CyclicBarrier)中的线程则
+没有这种待遇了，是直接的相互等待，动不了的。
+这就是两者比较大的一个区别，面试的时候，这个区分点一定要讲出来的。
+好，我们现在再次理解一下:
+
+闭锁就是主线程在等，而栅栏是，子线程在等。
+我刚才说，闭锁就是主线程在等，这句话只能覆盖80%场景，是因为，在闭锁中，你同样也有办法
+让子线程等。
+最典型的场景就是，我们需要压测某个接口的时候，假设是100并发，我们可以这么来设计:
+
+```java
+import java.util.concurrent.CountDownLatch:
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+public class StartExample {
+public static void main(String[] args) throws InterruptedException {
+	//核心:没置一个初始值为1的闭锁。
+   	CountDownLatch startSignal = new CountDownLatch(1);
+ 	int threadCount = 100;
+	ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+	//1.循环提交100个子线程任务
+	for (int i = 0; i < threadCount; i++) {
+	final int threadId = i;
+	executor.submit(() -> {
+	try {
+	//「子线程在这里等待];因为startSignal的值是1，还没归零
+	//所以这100个子线程走到这一行，全部会被卡住挂起
+	startSignal.await();
+	//当计数器减1后，变成0，100个线程瞬间同时冲到这里，执行真正的压测逻
+	System.out.println("子线程+ threadId +"瞬间冲出，发起请求!“);
+ 
+	} catch (InterruptedException e) {
+	Thread.currentThread().interrupt();
+	}
+	});
+	//主线程稍微疆2秒，确保上面那100个子线程都已经创遗好，并且全部卡在了await()那里
+	Thread.sleep(2000);
+	System.out.println("===主线程准备减一了");
+	//2.[主线程触发等件]:主线程把计数器M1斌到0
+	//这一瞬间，100个被卡住的子线程被同时唤醒，犹如开闸放水!
+	startSignal.countDown();
+	executor.shutdown();
+}
+
+```
+
+
+
 #### 15、JMM
 
 >Java Memory Model
